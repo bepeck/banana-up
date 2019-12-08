@@ -3,23 +3,26 @@ package ru.bdm.reflection;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import net.sf.cglib.core.Signature;
-import net.sf.cglib.proxy.*;
-import org.javatuples.Pair;
+import net.sf.cglib.proxy.Enhancer;
+import net.sf.cglib.proxy.Factory;
+import net.sf.cglib.proxy.InterfaceMaker;
+import net.sf.cglib.proxy.InvocationHandler;
 import org.objectweb.asm.Type;
 
 import javax.annotation.Nonnull;
-import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 import static com.google.common.base.Throwables.propagate;
 import static com.google.common.cache.CacheBuilder.newBuilder;
 import static com.google.common.collect.ImmutableSet.copyOf;
-import static org.javatuples.Pair.with;
 import static org.objectweb.asm.Type.getType;
-import static ru.bdm.reflection.Util.*;
+import static ru.bdm.reflection.Util.getGetterName;
+import static ru.bdm.reflection.Util.getPropertyName;
+import static ru.bdm.reflection.Util.upperFirst;
 
 /**
  * User: D.Brusentsov
@@ -28,8 +31,23 @@ import static ru.bdm.reflection.Util.*;
  */
 public class PropertyJoiner {
 
+    private static final Type OBJECT_TYPE = getType(Object.class);
+    private static final Type[] EMPTY_TYPES = new Type[0];
+    private static final LoadingCache<String, Class> PROPERTY_HOLDER_INTERFACE_CACHE = newBuilder()
+            .build(new CacheLoader<String, Class>() {
+                @Override
+                public Class load(String propertyName) {
+                    return createPropertyHolderInterface(propertyName);
+                }
+            });
+    private static final LoadingCache<ProxyClassKey, Class> PROXY_CLASSES_CACHE = newBuilder()
+            .build(new CacheLoader<ProxyClassKey, Class>() {
+                @Override
+                public Class load(ProxyClassKey classHolderTypesKey) throws Exception {
+                    return createProxyClass(classHolderTypesKey);
+                }
+            });
     private final PropertyExtractor extractor;
-
     private final Set<String> properties;
 
     public PropertyJoiner(final @Nonnull PropertyExtractor extractor, final @Nonnull String... properties) {
@@ -38,23 +56,47 @@ public class PropertyJoiner {
     }
 
     public PropertyJoiner(final @Nonnull PropertyExtractor extractor, final @Nonnull Collection<String> properties) {
-        this(extractor, properties.toArray(new String[properties.size()]));
+        this(extractor, properties.toArray(new String[]{}));
     }
 
     public static <T> T joinProperties(final @Nonnull T t, final @Nonnull Map<String, ?> map) {
-        return new PropertyJoiner(new PropertyExtractor() {
-            @Override
-            public Object get(Object o, String property) {
-                return map.get(property);
-            }
-        }, map.keySet()).joinProperties(t);
+        return new PropertyJoiner((o, property) -> map.get(property), map.keySet()).joinProperties(t);
+    }
+
+    private static Class createProxyClass(ProxyClassKey classHolderTypesKey) throws ExecutionException {
+        final Enhancer enhancer = new Enhancer();
+        enhancer.setClassLoader(PropertyJoiner.class.getClassLoader());
+        enhancer.setInterfaces(getPropertyHolderInterfaces(classHolderTypesKey.names));
+        enhancer.setSuperclass(classHolderTypesKey.clazz);
+        enhancer.setCallbackType(InvocationHandler.class);
+        enhancer.setCallbackFilter(method -> {
+            return 0;  //To change body of implemented methods use File | Settings | File Templates.
+        });
+        return enhancer.createClass();
+    }
+
+    private static Class[] getPropertyHolderInterfaces(final Set<String> properties) throws ExecutionException {
+        final Class[] result = new Class[properties.size()];
+        int i = 0;
+        for (final String property : properties) {
+            result[i++] = PROPERTY_HOLDER_INTERFACE_CACHE.get(property);
+        }
+        return result;
+    }
+
+    private static Class<?> createPropertyHolderInterface(final String propertyName) {
+        Signature signature = new Signature(getGetterName(propertyName, Object.class), OBJECT_TYPE, EMPTY_TYPES);
+        InterfaceMaker interfaceMaker = new InterfaceMaker();
+        interfaceMaker.add(signature, new Type[0]);
+        interfaceMaker.setNamingPolicy((prefix, source, key, names) -> upperFirst(propertyName + "Holder"));
+        return interfaceMaker.create();
     }
 
     public <T> T joinProperties(final @Nonnull T t) {
         try {
-            final Class clazz = t instanceof Factory ? t.getClass().getSuperclass() : t.getClass();
+            final Class<?> clazz = t instanceof Factory ? t.getClass().getSuperclass() : t.getClass();
 
-            final Class proxyClass = getProxyClass(clazz, properties);
+            final Class<?> proxyClass = PROXY_CLASSES_CACHE.get(new ProxyClassKey(clazz, properties));
 
             final @SuppressWarnings("unchecked") T result = (T) proxyClass.newInstance();
 
@@ -73,62 +115,35 @@ public class PropertyJoiner {
         }
     }
 
-    public static interface PropertyExtractor {
-        public Object get(Object o, String property);
+    public interface PropertyExtractor {
+        Object get(Object obj, String property);
     }
 
-    private static final LoadingCache<Pair<Class, Set<String>>, Class> PROXY_CLASSES_CACHE = newBuilder()
-            .build(new CacheLoader<Pair<Class, Set<String>>, Class>() {
-                @Override
-                public Class load(Pair<Class, Set<String>> classHolderTypesKey) throws Exception {
-                    return createProxyClass(classHolderTypesKey);
-                }
-            });
+    private static final class ProxyClassKey {
+        final Class<?> clazz;
+        final Set<String> names;
 
-    private static Class createProxyClass(Pair<Class, Set<String>> classHolderTypesKey) throws ExecutionException {
-        final Enhancer enhancer = new Enhancer();
-        enhancer.setClassLoader(PropertyJoiner.class.getClassLoader());
-        enhancer.setInterfaces(getPropertyHolderInterfaces(classHolderTypesKey.getValue1()));
-        enhancer.setSuperclass(classHolderTypesKey.getValue0());
-        enhancer.setCallbackType(InvocationHandler.class);
-        enhancer.setCallbackFilter(new CallbackFilter() {
-            @Override
-            public int accept(Method method) {
-                return 0;  //To change body of implemented methods use File | Settings | File Templates.
-            }
-        });
-        return enhancer.createClass();
-    }
-
-    private static Class getProxyClass(Class clazz, Set<String> properties) throws ExecutionException {
-        return PROXY_CLASSES_CACHE.get(with(clazz, properties));
-    }
-
-    private static final LoadingCache<String, Class> PROPERTY_HOLDER_INTERFACE_CACHE = newBuilder()
-            .build(new CacheLoader<String, Class>() {
-                @Override
-                public Class load(String propertyName) throws Exception {
-                    return createPropertyHolderInterface(propertyName);
-                }
-            });
-
-    private static Class[] getPropertyHolderInterfaces(final Set<String> properties) throws ExecutionException {
-        final Class[] result = new Class[properties.size()];
-        int i = 0;
-        for (final String property : properties) {
-            result[i++] = PROPERTY_HOLDER_INTERFACE_CACHE.get(property);
+        ProxyClassKey(final Class<?> clazz, final Set<String> names) {
+            this.clazz = clazz;
+            this.names = names;
         }
-        return result;
-    }
 
-    private static final Type OBJECT_TYPE = getType(Object.class);
-    private static final Type[] EMPTY_TYPES = new Type[0];
+        @Override
+        public boolean equals(final Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (obj == null || getClass() != obj.getClass()) {
+                return false;
+            }
+            final ProxyClassKey that = (ProxyClassKey) obj;
+            return Objects.equals(clazz, that.clazz) &&
+                    Objects.equals(names, that.names);
+        }
 
-    private static Class createPropertyHolderInterface(String propertyName) {
-        Signature signature = new Signature(getGetterName(propertyName, Object.class), OBJECT_TYPE, EMPTY_TYPES);
-        InterfaceMaker interfaceMaker = new InterfaceMaker();
-        interfaceMaker.add(signature, new Type[0]);
-        interfaceMaker.setNamingPolicy((prefix, source, key, names) -> upperFirst(propertyName + "Holder"));
-        return interfaceMaker.create();
+        @Override
+        public int hashCode() {
+            return Objects.hash(clazz, names);
+        }
     }
 }

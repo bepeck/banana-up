@@ -20,20 +20,11 @@ import static ru.bdm.reflection.PropertyJoiner.joinProperties;
  */
 public class PropertyJoinerTest {
 
-    public static class AnyType {
-        public Object getAnyProperty() {
-            return "anyPropertyValue";
-        }
-    }
-
     @Test
     public void testWithPropertyExtractor() throws IllegalAccessException, NoSuchMethodException, InvocationTargetException {
-        PropertyJoiner propertyJoiner = new PropertyJoiner(new PropertyExtractor() {
-            @Override
-            public Object get(Object o, String property) {
-                return property + "Value";
-            }
-        }, "first", "second");
+        PropertyJoiner propertyJoiner = new PropertyJoiner(
+                (obj, property) -> property + "Value", "first", "second"
+        );
 
         AnyType src = new AnyType();
 
@@ -61,13 +52,10 @@ public class PropertyJoinerTest {
     }
 
     @Test
-    public void performanceTest() throws IllegalAccessException, NoSuchMethodException, InvocationTargetException {
-        PropertyJoiner propertyJoiner = new PropertyJoiner(new PropertyExtractor() {
-            @Override
-            public Object get(Object o, String property) {
-                return property + "Value";
-            }
-        }, "first", "second");
+    public void performanceTest() {
+        PropertyJoiner propertyJoiner = new PropertyJoiner(
+                (obj, property) -> property + "Value", "first", "second"
+        );
 
         int count = 100000;
 
@@ -110,7 +98,13 @@ public class PropertyJoinerTest {
         System.out.println("rawIterateTime: " + rawIterateTime);
     }
 
-    private void doSomething(Object o) {
+    private void doSomething(final Object obj) {
         //to prevent optimisation
+    }
+
+    public static class AnyType {
+        public Object getAnyProperty() {
+            return "anyPropertyValue";
+        }
     }
 }
