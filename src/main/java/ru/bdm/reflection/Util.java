@@ -1,7 +1,5 @@
 package ru.bdm.reflection;
 
-import javax.annotation.Nonnull;
-import javax.annotation.Nullable;
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
@@ -17,15 +15,15 @@ import static java.lang.Character.toUpperCase;
 import static java.util.Arrays.asList;
 import static java.util.Collections.reverse;
 import static java.util.Collections.unmodifiableList;
-import static java.util.Objects.requireNonNull;
-import static org.apache.commons.lang.ArrayUtils.indexOf;
+import static org.apache.commons.lang3.ArrayUtils.contains;
+import static org.apache.commons.lang3.ArrayUtils.indexOf;
 
 /**
  * User: D.Brusentsov
  * Date: 26.04.13
  * Time: 11:28
  */
-public class Util {
+public final class Util {
 
     private static final String SETTER_PREFIX = "set";
     private static final String GETTER_PREFIX = "get";
@@ -35,6 +33,9 @@ public class Util {
             GETTER_PREFIX,
             SETTER_PREFIX
     ));
+
+    private Util() {
+    }
 
     /**
      * @param member getter or field that represents the property
@@ -142,11 +143,11 @@ public class Util {
     }
 
     private static List<Class<?>> inheritanceChain(final Class<?> clazz, final Class<?> interfaceType) {
-        final List<Class<?>> res = new ArrayList<Class<?>>();
+        final List<Class<?>> res = new ArrayList<>();
         Class<?> clazzToCheck = clazz;
         do {
             res.add(clazzToCheck);
-            if (asList(clazzToCheck.getInterfaces()).contains(interfaceType)) {
+            if (contains(clazzToCheck.getInterfaces(), interfaceType)) {
                 break;
             }
             clazzToCheck = clazzToCheck.getSuperclass();
@@ -183,16 +184,6 @@ public class Util {
         char[] nameChars = name.toCharArray();
         nameChars[0] = toUpperCase(nameChars[0]);
         return new String(nameChars);
-    }
-
-    @Nonnull
-    static <T> T firstNotNull(final @Nullable T t0, final @Nonnull T t1) {
-        requireNonNull(t1);
-        if (t0 == null) {
-            return t1;
-        } else {
-            return t0;
-        }
     }
 
     static RuntimeException propagate(final Exception e) {

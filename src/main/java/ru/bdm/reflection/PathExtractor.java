@@ -13,8 +13,8 @@ import static java.util.Arrays.asList;
 import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
 import static org.apache.commons.beanutils.ConvertUtils.convert;
-import static org.apache.commons.lang.ClassUtils.wrapperToPrimitive;
-import static ru.bdm.reflection.Util.firstNotNull;
+import static org.apache.commons.lang3.ClassUtils.wrapperToPrimitive;
+import static org.apache.commons.lang3.ObjectUtils.defaultIfNull;
 import static ru.bdm.reflection.Util.getInterfaceParameterType;
 import static ru.bdm.reflection.Util.propagate;
 
@@ -65,7 +65,7 @@ public class PathExtractor {
                 throw new IllegalArgumentException("bad mask type: " + maskClass.getName() + ", expected subclass of " + maskInfo.type);
             }
             try {
-                return (T) createProxy(firstNotNull(maskClass, maskInfo.type), maskInfo.path);
+                return (T) createProxy(defaultIfNull(maskClass, maskInfo.type), maskInfo.path);
             } catch (final Exception e) {
                 throw propagate(e);
             }
