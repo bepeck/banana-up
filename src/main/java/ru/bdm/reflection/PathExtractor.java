@@ -1,24 +1,22 @@
 package ru.bdm.reflection;
 
-import com.google.common.base.Predicate;
-import com.google.common.collect.ImmutableList;
 import net.sf.cglib.proxy.Enhancer;
 import net.sf.cglib.proxy.MethodInterceptor;
-import net.sf.cglib.proxy.MethodProxy;
 
 import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 
-import static com.google.common.base.Objects.firstNonNull;
-import static com.google.common.base.Preconditions.checkNotNull;
-import static com.google.common.base.Throwables.propagate;
-import static com.google.common.collect.Iterables.any;
 import static java.lang.reflect.Modifier.isFinal;
+import static java.util.Arrays.asList;
+import static java.util.Collections.unmodifiableList;
+import static java.util.Objects.requireNonNull;
 import static org.apache.commons.beanutils.ConvertUtils.convert;
 import static org.apache.commons.lang.ClassUtils.wrapperToPrimitive;
+import static ru.bdm.reflection.Util.firstNotNull;
 import static ru.bdm.reflection.Util.getInterfaceParameterType;
+import static ru.bdm.reflection.Util.propagate;
 
 /**
  * User: D.Brusentsov
@@ -27,8 +25,13 @@ import static ru.bdm.reflection.Util.getInterfaceParameterType;
  */
 public class PathExtractor {
 
-    private static final List<Class<?>> DO_NOT_PROXY = ImmutableList.<Class<?>>of(String.class, Boolean.class, Number.class,
-            Date.class, Enum.class);
+    private static final List<Class<?>> DO_NOT_PROXY = unmodifiableList(asList(
+            String.class,
+            Boolean.class,
+            Number.class,
+            Date.class,
+            Enum.class
+    ));
 
     public static String getPath(final Example example) {
         return getPath(getInterfaceParameterType(example.getClass(), Example.class, 0), example);
@@ -36,11 +39,11 @@ public class PathExtractor {
 
     @SuppressWarnings("unchecked")
     public static <T> String getPath(final Class<T> entityClass, final Example<T> example) {
-        final Example<T> checkedExample = checkNotNull(example);
+        final Example<T> checkedExample = requireNonNull(example);
 
         final Path pathContainer = new Path();
 
-        final Object proxy = createProxy(checkNotNull(entityClass), pathContainer);
+        final Object proxy = createProxy(requireNonNull(entityClass), pathContainer);
 
         checkedExample.example((T) proxy);
 
@@ -52,7 +55,7 @@ public class PathExtractor {
     }
 
     @SuppressWarnings("unchecked")
-    public static <T> T mask(final Collection<?> collection, Class<T> maskClass) {
+    public static <T> T mask(final Collection<?> collection, final Class<T> maskClass) {
         if (collection instanceof Masked) {
             final MaskInfo maskInfo = ((Masked) collection).getInfo();
             if (maskInfo.type == null) {
@@ -62,8 +65,8 @@ public class PathExtractor {
                 throw new IllegalArgumentException("bad mask type: " + maskClass.getName() + ", expected subclass of " + maskInfo.type);
             }
             try {
-                return (T) createProxy(firstNonNull(maskClass, maskInfo.type), maskInfo.path);
-            } catch (Exception e) {
+                return (T) createProxy(firstNotNull(maskClass, maskInfo.type), maskInfo.path);
+            } catch (final Exception e) {
                 throw propagate(e);
             }
         }
@@ -80,30 +83,23 @@ public class PathExtractor {
         } else {
             enhancer.setSuperclass(entityClass);
         }
-        enhancer.setCallback(new MethodInterceptor() {
-            public Object intercept(Object o, Method method, Object[] args, MethodProxy proxy) throws Throwable {
-                final String pathValue = getPath(method, currentPath);
-                path.setValue(pathValue);
-                final Class<?> returnType = method.getReturnType();
-                if (returnType == void.class) {
-                    return null;
-                }
-                if (Collection.class.isAssignableFrom(returnType)) {
-                    return createCollectionProxy(returnType, Util.getCollectionItemType(method), path);
-                }
-                final Class<?> primitive = returnType.isPrimitive() ? returnType : wrapperToPrimitive(returnType);
-                if (primitive != null) {
-                    return convert((Object) null, primitive);
-                } else if (isFinal(returnType.getModifiers()) || any(DO_NOT_PROXY, new Predicate<Class<?>>() {
-                    @Override
-                    public boolean apply(Class<?> clazz) {
-                        return clazz.isAssignableFrom(returnType);
-                    }
-                })) {
-                    return null;
-                }
-                return createProxy(returnType, path);
+        enhancer.setCallback((MethodInterceptor) (o, method, args, proxy) -> {
+            final String pathValue = getPath(method, currentPath);
+            path.setValue(pathValue);
+            final Class<?> returnType = method.getReturnType();
+            if (returnType == void.class) {
+                return null;
             }
+            if (Collection.class.isAssignableFrom(returnType)) {
+                return createCollectionProxy(returnType, Util.getCollectionItemType(method), path);
+            }
+            final Class<?> primitive = returnType.isPrimitive() ? returnType : wrapperToPrimitive(returnType);
+            if (primitive != null) {
+                return convert((Object) null, primitive);
+            } else if (isFinal(returnType.getModifiers()) || DO_NOT_PROXY.stream().anyMatch(clazz -> clazz.isAssignableFrom(returnType))) {
+                return null;
+            }
+            return createProxy(returnType, path);
         });
         return enhancer.create();
     }
@@ -112,9 +108,11 @@ public class PathExtractor {
         return mask(collection, null);
     }
 
-    protected static Object createCollectionProxy(final Class<?> collectionType,
-                                                  final Class<?> collectionItemType,
-                                                  final Path path) {
+    static Object createCollectionProxy(
+            final Class<?> collectionType,
+            final Class<?> collectionItemType,
+            final Path path
+    ) {
         final MaskInfo maskInfo = new MaskInfo(path, collectionItemType);
 
         final Enhancer enhancer = new Enhancer();
@@ -125,13 +123,11 @@ public class PathExtractor {
             enhancer.setInterfaces(new Class<?>[]{Masked.class});
             enhancer.setSuperclass(collectionType);
         }
-        enhancer.setCallback(new MethodInterceptor() {
-            public Object intercept(Object obj, Method method, Object[] args, MethodProxy proxy) throws Throwable {
-                if (method.getDeclaringClass() == Masked.class) {
-                    return maskInfo;
-                }
-                throw new UnsupportedMethod("only methods of " + Masked.class.getName() + " are supported");
+        enhancer.setCallback((MethodInterceptor) (obj, method, args, proxy) -> {
+            if (method.getDeclaringClass() == Masked.class) {
+                return maskInfo;
             }
+            throw new UnsupportedMethod("only methods of " + Masked.class.getName() + " are supported");
         });
         return enhancer.create();
     }
@@ -148,14 +144,24 @@ public class PathExtractor {
         return res;
     }
 
+    @FunctionalInterface
+    public interface Example<Entity> {
+        void example(Entity entity);
+    }
+
+    public interface Masked {
+        MaskInfo getInfo();
+    }
+
+    //TODO: what?
     public static class Path {
         private String value;
 
-        public String getValue() {
+        String getValue() {
             return value;
         }
 
-        public void setValue(String value) {
+        void setValue(String value) {
             this.value = value;
         }
 
@@ -163,14 +169,6 @@ public class PathExtractor {
         public String toString() {
             return String.valueOf(value);
         }
-    }
-
-    public interface Example<Entity> {
-        void example(Entity entity);
-    }
-
-    public interface Masked {
-        MaskInfo getInfo();
     }
 
     public static class MaskInfo {
@@ -183,32 +181,32 @@ public class PathExtractor {
         }
     }
 
-    public static class PathExtractorException extends RuntimeException {
-        protected PathExtractorException(String message) {
+    static class PathExtractorException extends RuntimeException {
+        PathExtractorException(String message) {
             super(message);
         }
     }
 
-    public static class PropertyNotFound extends PathExtractorException {
-        public PropertyNotFound(String message) {
+    static class PropertyNotFound extends PathExtractorException {
+        PropertyNotFound(String message) {
             super(message);
         }
     }
 
-    public static class UnsupportedMethod extends PathExtractorException {
-        public UnsupportedMethod(String message) {
+    static class UnsupportedMethod extends PathExtractorException {
+        UnsupportedMethod(String message) {
             super(message);
         }
     }
 
-    public static class RawCollection extends PathExtractorException {
-        public RawCollection(String message) {
+    static class RawCollection extends PathExtractorException {
+        RawCollection(String message) {
             super(message);
         }
     }
 
-    public static class ExampleNotProvided extends PathExtractorException {
-        public ExampleNotProvided(String message) {
+    static class ExampleNotProvided extends PathExtractorException {
+        ExampleNotProvided(String message) {
             super(message);
         }
     }

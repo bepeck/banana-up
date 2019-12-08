@@ -1,15 +1,13 @@
 package ru.bdm.reflection;
 
-import com.google.common.collect.ImmutableList;
-
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import static com.google.common.collect.Lists.reverse;
 import static java.util.function.Function.identity;
 import static ru.bdm.reflection.PathExtractor.Path;
 import static ru.bdm.reflection.PathExtractor.createProxy;
@@ -25,7 +23,7 @@ public class PathExtractorJava8<Curr> {
     private final Class type;
 
     private PathExtractorJava8(@Nonnull Class type) {
-        this(type, ImmutableList.<Function>of());
+        this(type, Collections.emptyList());
     }
 
     private PathExtractorJava8(@Nonnull Class type, @Nonnull List<Function> calls) {
@@ -42,13 +40,13 @@ public class PathExtractorJava8<Curr> {
     }
 
     public <T> PathExtractorJava8<T> then(@Nonnull Function<Curr, T> function) {
-        PathExtractorJava8<T> res = new PathExtractorJava8<>(type, calls);
+        final PathExtractorJava8<T> res = new PathExtractorJava8<>(type, calls);
         res.calls.add(function);
         return res;
     }
 
     public <T, C extends Iterable<T>> PathExtractorJava8<T> thenMask(@Nonnull Function<Curr, C> function) {
-        PathExtractorJava8<T> res = new PathExtractorJava8<>(type, calls);
+        final PathExtractorJava8<T> res = new PathExtractorJava8<>(type, calls);
         res.calls.add(function);
         res.calls.add((Function<Collection<T>, T>) PathExtractor::mask);
         return res;
@@ -59,7 +57,9 @@ public class PathExtractorJava8<Curr> {
             throw new IllegalStateException();
         }
         final Path path = new Path();
-        reverse(calls).stream().reduce(identity(), Function::compose).apply(createProxy(type, path));
+        final ArrayList<Function> reversedCalls = new ArrayList<>(calls);
+        Collections.reverse(reversedCalls);
+        reversedCalls.stream().reduce(identity(), Function::compose).apply(createProxy(type, path));
         return path.getValue();
     }
 

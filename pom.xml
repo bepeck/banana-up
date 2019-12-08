@@ -4,9 +4,9 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>moonster</groupId>
-    <artifactId>moonster-utils</artifactId>
-    <name>moonster-utils</name>
+    <groupId>banana-up</groupId>
+    <artifactId>banana-up-utils</artifactId>
+    <name>banana-up-utils</name>
     <packaging>jar</packaging>
     <version>1.0.0-SNAPSHOT</version>
 
@@ -22,14 +22,9 @@
             <version>2.6</version>
         </dependency>
         <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>17.0</version>
-        </dependency>
-        <dependency>
             <groupId>com.google.code.findbugs</groupId>
             <artifactId>jsr305</artifactId>
-            <version>2.0.2</version>
+            <version>3.0.2</version>
         </dependency>
         <dependency>
             <groupId>cglib</groupId>

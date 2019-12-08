@@ -1,17 +1,23 @@
 package ru.bdm.reflection;
 
-import com.google.common.collect.ImmutableList;
-
-import java.lang.reflect.*;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
+import java.lang.reflect.Field;
+import java.lang.reflect.Member;
+import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.TypeVariable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.Lists.reverse;
 import static java.lang.Character.toLowerCase;
 import static java.lang.Character.toUpperCase;
-import static org.apache.commons.lang.ArrayUtils.contains;
+import static java.util.Arrays.asList;
+import static java.util.Collections.reverse;
+import static java.util.Collections.unmodifiableList;
+import static java.util.Objects.requireNonNull;
 import static org.apache.commons.lang.ArrayUtils.indexOf;
 
 /**
@@ -21,12 +27,21 @@ import static org.apache.commons.lang.ArrayUtils.indexOf;
  */
 public class Util {
 
+    private static final String SETTER_PREFIX = "set";
+    private static final String GETTER_PREFIX = "get";
+    private static final String GETTER_PREFIX_BOOLEAN = "is";
+    private static final List<String> PROPERTY_ACCESSOR_PREFIXES = unmodifiableList(asList(
+            GETTER_PREFIX_BOOLEAN,
+            GETTER_PREFIX,
+            SETTER_PREFIX
+    ));
+
     /**
      * @param member getter or field that represents the property
      * @return collection generic parameter or null if it there is not
      * @throws IllegalArgumentException if method returns not a collection
      */
-    public static Class getCollectionItemType(Member member) {
+    public static Class getCollectionItemType(final Member member) {
         if (member instanceof Method) {
             return getCollectionItemType((Method) member);
         } else if (member instanceof Field) {
@@ -36,21 +51,21 @@ public class Util {
         }
     }
 
-    private static Class<?> getCollectionItemType(Method getter) {
+    private static Class<?> getCollectionItemType(final Method getter) {
         if (!Collection.class.isAssignableFrom(getter.getReturnType())) {
             throw new IllegalArgumentException("not a collection");
         }
         return getCollectionItemType(getter.getGenericReturnType());
     }
 
-    private static Class getCollectionItemType(Field field) {
+    private static Class getCollectionItemType(final Field field) {
         if (!Collection.class.isAssignableFrom(field.getType())) {
             throw new IllegalArgumentException("not a collection");
         }
         return getCollectionItemType(field.getGenericType());
     }
 
-    private static Class getCollectionItemType(Type genericReturnType) {
+    private static Class getCollectionItemType(final Type genericReturnType) {
         if (!(genericReturnType instanceof ParameterizedType)) {
             return null;
         }
@@ -61,8 +76,14 @@ public class Util {
         return (Class<?>) type;
     }
 
-    public static Class<?> getInterfaceParameterType(Class<?> implemented, Class<?> interfaceType, int parameterIndex) {
-        checkState(interfaceType.isAssignableFrom(implemented));
+    public static Class<?> getInterfaceParameterType(
+            final Class<?> implemented,
+            final Class<?> interfaceType,
+            final int parameterIndex
+    ) {
+        if (!interfaceType.isAssignableFrom(implemented)) {
+            throw new IllegalStateException();
+        }
 
         final List<Class<?>> inheritanceChain = inheritanceChain(implemented, interfaceType);
 
@@ -77,19 +98,23 @@ public class Util {
         return resolveGenericClassParameter(inheritanceChain, typeParameter);
     }
 
-    private static Class resolveGenericClassParameter(List<Class<?>> inheritanceChain, Type typeParameter) {
+    private static Class resolveGenericClassParameter(
+            final List<Class<?>> inheritanceChain,
+            final Type typeParameter
+    ) {
+        Type actualTypeParameter = typeParameter;
         for (int i = 0, typeParameterIndex = -1; i < inheritanceChain.size(); i++) {
             final Class<?> clazz = inheritanceChain.get(i);
             if (i != 0) {
-                typeParameter = ((ParameterizedType) clazz.getGenericSuperclass()).getActualTypeArguments()[typeParameterIndex];
-                if (typeParameter instanceof Class) {
-                    return (Class<?>) typeParameter;
+                actualTypeParameter = ((ParameterizedType) clazz.getGenericSuperclass()).getActualTypeArguments()[typeParameterIndex];
+                if (actualTypeParameter instanceof Class) {
+                    return (Class<?>) actualTypeParameter;
                 }
             }
-            if (typeParameter instanceof TypeVariable) {
-                typeParameterIndex = indexOf(clazz.getTypeParameters(), typeParameter);
+            if (actualTypeParameter instanceof TypeVariable) {
+                typeParameterIndex = indexOf(clazz.getTypeParameters(), actualTypeParameter);
                 if (typeParameterIndex == -1) {
-                    throw new RuntimeException(typeParameter + " in not presented in " + clazz.toString());
+                    throw new RuntimeException(actualTypeParameter + " in not presented in " + clazz.toString());
                 }
             } else {
                 return null;
@@ -98,7 +123,11 @@ public class Util {
         return null;
     }
 
-    private static Type findGenericInterfaceParameter(Type[] genericInterfaces, Class<?> interfaceType, int parameterIndex) {
+    private static Type findGenericInterfaceParameter(
+            final Type[] genericInterfaces,
+            final Class<?> interfaceType,
+            final int parameterIndex
+    ) {
         for (final Type genericInterface : genericInterfaces) {
             if (!(genericInterface instanceof ParameterizedType)) {
                 continue;
@@ -112,22 +141,19 @@ public class Util {
         return null;
     }
 
-    private static List<Class<?>> inheritanceChain(Class<?> implemented, Class<?> interfaceType) {
+    private static List<Class<?>> inheritanceChain(final Class<?> clazz, final Class<?> interfaceType) {
         final List<Class<?>> res = new ArrayList<Class<?>>();
+        Class<?> clazzToCheck = clazz;
         do {
-            res.add(implemented);
-            if (contains(implemented.getInterfaces(), interfaceType)) {
+            res.add(clazzToCheck);
+            if (asList(clazzToCheck.getInterfaces()).contains(interfaceType)) {
                 break;
             }
-            implemented = implemented.getSuperclass();
-        } while (implemented != null);
-        return reverse(res);
+            clazzToCheck = clazzToCheck.getSuperclass();
+        } while (clazzToCheck != null);
+        reverse(res);
+        return res;
     }
-
-    private static final String SETTER_PREFIX = "set";
-    private static final String GETTER_PREFIX = "get";
-    private static final String GETTER_PREFIX_BOOLEAN = "is";
-    private static final List<String> PROPERTY_ACCESSOR_PREFIXES = ImmutableList.of(GETTER_PREFIX_BOOLEAN, GETTER_PREFIX, SETTER_PREFIX);
 
     public static String getPropertyName(final Method accessor) {
         final String accessorName = accessor.getName();
@@ -140,19 +166,39 @@ public class Util {
         return null;
     }
 
-    public static String lowerFirst(String string) {
+    public static String lowerFirst(final String string) {
         final char[] chars = string.toCharArray();
         chars[0] = toLowerCase(chars[0]);
         return new String(chars);
     }
 
     public static String getGetterName(final String name, final Class returnType) {
-        return ((returnType == boolean.class || returnType == Boolean.class) ? GETTER_PREFIX_BOOLEAN : GETTER_PREFIX) + upperFirst(name);
+        return ((returnType == boolean.class || returnType == Boolean.class)
+                ? GETTER_PREFIX_BOOLEAN
+                : GETTER_PREFIX
+        ) + upperFirst(name);
     }
 
-    public static String upperFirst(String name) {
+    public static String upperFirst(final String name) {
         char[] nameChars = name.toCharArray();
         nameChars[0] = toUpperCase(nameChars[0]);
         return new String(nameChars);
+    }
+
+    @Nonnull
+    static <T> T firstNotNull(final @Nullable T t0, final @Nonnull T t1) {
+        requireNonNull(t1);
+        if (t0 == null) {
+            return t1;
+        } else {
+            return t0;
+        }
+    }
+
+    static RuntimeException propagate(final Exception e) {
+        if (e instanceof RuntimeException) {
+            throw (RuntimeException) e;
+        }
+        throw new RuntimeException(e);
     }
 }
